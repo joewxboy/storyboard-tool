@@ -220,8 +220,9 @@ def parse_markdown(text: str, *, source: str = "", wpm: int = 150,
     _fill_gaps(ep)
 
     ep.assets = _parse_assets(secs)
-    _parse_copy_block(ep, secs)
     _derive_overlays(ep)
+    _parse_copy_block(ep, secs)
+    _finalize_overlays(ep)
     _apply_meta_overrides(ep, meta)
 
     for s in ep.shots:
@@ -629,15 +630,24 @@ def _derive_overlays(ep: Episode) -> None:
         if ep.problem:
             ep.problem_until = first.to
 
-    ep.captions = _dedupe(ep.captions)
-    ep.captions.sort(key=lambda c: c.frm)
-    ep.lower.sort(key=lambda c: c.frm)
-    ep.labels.sort(key=lambda c: c.frm)
 
     if ep.end_from is None and ep.beats:
         ep.end_from = ep.beats[-1].frm
     ep.endcard.setdefault("eyebrow", "full walkthrough →")
     ep.endcard.setdefault("line", ep.title or ep.code)
+
+
+def _finalize_overlays(ep: Episode) -> None:
+    """Run once the shots and the copy block have both had their say."""
+    ep.captions = _dedupe(ep.captions)
+    ep.captions.sort(key=lambda c: c.frm)
+    ep.lower.sort(key=lambda c: c.frm)
+    ep.labels.sort(key=lambda c: c.frm)
+
+
+def _key(text: str) -> str:
+    """Compare captions by their words, not their punctuation."""
+    return re.sub(r"[^a-z0-9]+", "", text.lower())
 
 
 def _clean_quote(text: str) -> str:
@@ -652,7 +662,7 @@ def _dedupe(spans: list[Span]) -> list[Span]:
     """Drop repeats — the same line often appears in a shot and in the copy block."""
     seen: dict[str, Span] = {}
     for sp in spans:
-        key = re.sub(r"[^a-z0-9]+", "", sp.text.lower())
+        key = _key(sp.text)
         if key in seen:
             continue        # keep the first placement; merging would stretch it
                             # across every shot whose notes repeat the line
@@ -703,8 +713,16 @@ def _parse_copy_block(ep: Episode, secs) -> None:
                         span = (min(b.frm for b in hits), max(b.to for b in hits))
             if span:
                 text = " ".join(l.strip() for l in lines)
-                ep.captions = [c for c in ep.captions
-                               if not (c.frm >= span[0] - 0.01 and c.to <= span[1] + 0.01)]
+                key = _key(text)
+                inside = [c for c in ep.captions
+                          if c.frm >= span[0] - 0.01 and c.to <= span[1] + 0.01]
+                # A copy block is usually keyed to a whole beat ("beat 4"), but a
+                # shot's own notes say which shot carries the line. The shot is
+                # the more specific placement, so it wins; the block only fills
+                # in copy the shots never mentioned.
+                if any(_key(c.text) == key for c in inside):
+                    continue
+                ep.captions = [c for c in ep.captions if c not in inside or _key(c.text) != key]
                 ep.captions.append(Span(span[0], span[1], text))
 
 

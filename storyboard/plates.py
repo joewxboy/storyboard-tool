@@ -168,9 +168,9 @@ def _infer(shot, raw: str, strict: bool = False) -> dict | None:
 
 def _term_plate(shot, blob: str, low: str, cmds: list[str]) -> dict:
     spec: dict = {"kind": "term"}
-    label = re.match(r"^`?([a-z][\w.\-]{1,20})`?\s*:", shot.title)
-    if label:
-        spec["label"] = label.group(1)
+    name = _machine(blob)
+    if name:
+        spec["label"] = name
     if re.search(r"split[- ]screen|side by side|both", low) and len(cmds) >= 2:
         half = max(1, len(cmds) // 2)
         spec["split"] = True
@@ -178,7 +178,14 @@ def _term_plate(shot, blob: str, low: str, cmds: list[str]) -> dict:
         spec["script"] = _script(cmds[:half])
         spec["script2"] = _script(cmds[half:])
     else:
-        spec["script"] = _script(cmds or ["$ " + re.sub(r"\s+", " ", shot.title)[:48]])
+        if not cmds:
+            # No command shaped like one, but a terminal shot: a backticked
+            # single word (`passwd`, `top`) is the thing being run.
+            bare = [c.strip() for c in CMD.findall(blob)
+                    if re.fullmatch(r"[a-z][\w.\-]{1,14}", c.strip())
+                    and c.strip() != spec.get("label")]
+            cmds = ["$ " + bare[0]] if bare else ["$ " + re.sub(r"\s+", " ", shot.title)[:48]]
+        spec["script"] = _script(cmds)
     return spec
 
 
@@ -209,6 +216,24 @@ def _finish(spec: dict, blob: str) -> dict:
         spec.setdefault("to", 30)
         spec["to"] = int(float(spec["to"]))
     return spec
+
+
+# Words that lead a shot title but are not the name of a machine.
+NOT_A_MACHINE = {"terminal", "editor", "browser", "bench", "screen", "still",
+                 "phone", "router", "dashboard", "chat", "montage", "card",
+                 "motion", "b-roll", "broll", "camera", "app", "console",
+                 "talking", "shell", "split", "cut", "closeup", "close-up"}
+
+
+def _machine(title: str) -> str | None:
+    """The machine a shot is on: 'laptop:', 'pi-1, on camera:', 'Laptop terminal:'."""
+    m = re.match(r"^`?([A-Za-z][\w.\-]{1,20})`?"
+                 r"(?:\s+(?:terminal|shell|console|screen|box|node|host))?\s*[:,]", title)
+    if m and m.group(1).lower() not in NOT_A_MACHINE:
+        return m.group(1).lower()
+    # "Terminal on `pi-2`: …" — the host is named, just not first.
+    m = re.match(r"^[^:\n]{0,30}?\bon\s+`?([a-z][\w.\-]{1,20})`?\s*[:,]", title, re.I)
+    return m.group(1).lower() if m else None
 
 
 def _split_heads(blob: str) -> tuple[str, str]:
