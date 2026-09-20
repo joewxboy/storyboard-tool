@@ -361,6 +361,55 @@
       } };
     },
 
+    /* Real footage, cut to the shot's slot. The storyboard clock is the
+       master: the clip follows it when playing at 1x and is scrubbed frame by
+       frame otherwise, so a take that overruns its slot is visibly cropped
+       rather than quietly stretching the episode. */
+    video: function (spec) {
+      var root = el("div", "plate");
+      root.innerHTML = bg("#0B090D");
+      var v = document.createElement("video");
+      v.className = "shotvid";
+      v.src = spec.src || "";
+      v.muted = true; v.defaultMuted = true; v.playsInline = true;
+      v.preload = "auto"; v.controls = false;
+      if (spec.fit) v.style.objectFit = spec.fit;
+      var failed = false;
+      v.addEventListener("error", function () {
+        if (failed) return;
+        failed = true;
+        v.remove();
+        root.appendChild(el("div", "imgfail", "this take will not play here<br>" +
+          (spec.src || "") + "<br><br>try: ffmpeg -i &lt;file&gt; -c:v libx264 -an out.mp4"));
+      });
+      root.appendChild(v);
+
+      var start = spec.trim ? Number(spec.trim) : 0;
+      var slot = Number(spec.slot) || 0;
+
+      function target(p) {
+        var want = start + p * slot;
+        var len = isFinite(v.duration) && v.duration > 0 ? v.duration : (spec.clip || 0);
+        return len ? Math.min(want, Math.max(0, len - 0.05)) : want;
+      }
+
+      return {
+        el: root,
+        update: function (p, t, state) {
+          if (failed) return;
+          var want = target(p);
+          if (state && state.playing && state.rate === 1) {
+            if (v.paused) { var q = v.play(); if (q && q.catch) q.catch(function () {}); }
+            if (Math.abs(v.currentTime - want) > 0.3) v.currentTime = want;
+          } else {
+            if (!v.paused) v.pause();
+            if (Math.abs(v.currentTime - want) > 0.03) v.currentTime = want;
+          }
+        },
+        stop: function () { if (!failed && !v.paused) v.pause(); }
+      };
+    },
+
     /* Once a still or a frame grab exists, drop it straight in. */
     image: function (spec) {
       var root = el("div", "plate");
@@ -472,6 +521,19 @@
       e.querySelector(".meta").textContent = tc(s.from) + "–" + tc(s.to) +
         (s.meta ? " · " + s.meta : "");
       e.querySelector(".note").textContent = s.note || "";
+      if (s.asset) {
+        var tag = el("span", "take");
+        var bits = [s.asset.kind === "video" ? "take" : "still"];
+        if (s.asset.take) bits.push("#" + s.asset.take);
+        if (s.asset.clip) bits.push(tc(s.asset.clip) + " clip");
+        if (s.asset.over) {
+          bits.push(Math.abs(s.asset.over).toFixed(0) + "s " +
+                    (s.asset.over > 0 ? "over" : "under") + " slot");
+          tag.classList.add(s.asset.over > 0 ? "over" : "under");
+        }
+        tag.textContent = bits.join(" \u00b7 ");
+        e.querySelector("span:last-child").appendChild(tag);
+      }
       e.addEventListener("click", function () { seek(s.from); });
       elShotList.appendChild(e);
       return e;
@@ -530,10 +592,14 @@
     var p = clamp01((t - shot.from) / Math.max(0.001, shot.to - shot.from));
 
     if (live !== si) {
-      plateObjs.forEach(function (o, j) { o.el.classList.toggle("is-live", j === si); });
+      plateObjs.forEach(function (o, j) {
+        var on = j === si;
+        o.el.classList.toggle("is-live", on);
+        if (!on && o.stop) o.stop();
+      });
       live = si;
     }
-    plateObjs[si].update(p, t);
+    plateObjs[si].update(p, t, { playing: playing, rate: rate });
 
     var endFrom = ep.endFrom == null ? ep.dur + 1 : ep.endFrom;
     var cap = at(ep.captions, t);

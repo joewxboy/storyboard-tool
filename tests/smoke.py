@@ -16,7 +16,7 @@ from storyboard.render import render                        # noqa: E402
 from storyboard.theme import load_theme                     # noqa: E402
 
 KINDS = {"term", "file", "card", "head", "scene", "wait", "app",
-         "chat", "progress", "image", "text"}
+         "chat", "progress", "image", "video", "text"}
 fails: list[str] = []
 
 
@@ -62,6 +62,42 @@ for md in sorted((ROOT / "examples").glob("*.md")):
     from storyboard.model import episode_from_json
     check(episode_from_json(json.loads(json.dumps(ep.json()))).json() == ep.json(),
           f"{where}: json round trip")
+
+# --- take discovery ---------------------------------------------------------
+import tempfile                                                    # noqa: E402
+from storyboard.takes import attach, episode_keys, scan            # noqa: E402
+
+beat_sheet_ep = next(e for e in episodes if e.source.endswith("beat-sheet.md"))
+check(episode_keys(beat_sheet_ep) >= {"V3", "V03"}, "episode keys: V3 and V03")
+
+with tempfile.TemporaryDirectory() as tmp:
+    d = Path(tmp)
+    for name in ("V03-shot-4.mp4", "V03-shot-4-take2.mp4", "V03-shot-6.png",
+                 "V04-shot-1.mp4", "notes.txt", "random.mp4"):
+        (d / name).write_bytes(b"x")
+    found = scan([d])
+    check(len(found) == 4, f"scan found {len(found)} takes, expected 4")
+
+    notes = attach([beat_sheet_ep], found, out_dir=d, probe=False)
+    by_num = {int(s.num): s for s in beat_sheet_ep.shots}
+    check(by_num[4].plate["kind"] == "video", "shot 4 takes the video")
+    check(by_num[4].asset["take"] == 2, "highest take wins")
+    check(by_num[6].plate["kind"] == "image", "shot 6 takes the still")
+    check(by_num[4].plate["src"] == "V03-shot-4-take2.mp4",
+          f"src is relative to the output: {by_num[4].plate['src']}")
+    check(any("no shot 1" not in n for n in notes) or not notes,
+          "other episodes' files are left alone")
+    check(all(s.asset is None for n, s in by_num.items() if n not in (4, 6)),
+          "only matching shots are touched")
+
+    # the length check
+    slot = by_num[4].to - by_num[4].frm
+    found2 = scan([d])
+    for t in found2:
+        t.duration = slot + 9 if t.shot == 4 else None
+    notes = attach([beat_sheet_ep], found2, out_dir=d, probe=False)
+    check(any("9s over" in n for n in notes), f"overrun reported: {notes}")
+    check(by_num[4].asset.get("over") == 9, "overrun recorded on the shot")
 
 sb = Storyboard(title="smoke", episodes=episodes)
 html = render(sb, load_theme("midnight"))

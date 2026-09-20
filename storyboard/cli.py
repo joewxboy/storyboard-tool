@@ -9,13 +9,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
+import subprocess
 import sys
+import time
 import webbrowser
 from pathlib import Path
 
 from .model import Storyboard, storyboard_from_json, timecode
 from .parse import parse_file
 from .render import render
+from .takes import attach, scan
 from .theme import PRESETS, load_theme
 
 
@@ -45,10 +49,23 @@ def _episodes(paths: list[str], args) -> list:
     return eps
 
 
-def _storyboard(args) -> Storyboard:
+def _storyboard(args, out_path: Path | None = None) -> Storyboard:
     eps = _episodes(args.input, args)
     if not eps:
         raise SystemExit("nothing to build")
+    if getattr(args, "assets", None):
+        found = scan(args.assets)
+        notes = attach(eps, found, out_dir=(out_path or Path(".")).parent,
+                       url_prefix=getattr(args, "assets_url", None),
+                       probe=not getattr(args, "no_probe", False),
+                       tolerance=getattr(args, "tolerance", 1.0))
+        placed = sum(1 for e in eps for sh in e.shots if sh.asset)
+        print(f"takes: {placed} placed from {len(found)} file"
+              f"{'s' if len(found) != 1 else ''}", file=sys.stderr)
+        for n in notes:
+            print(f"  ! {n}", file=sys.stderr)
+        if not shutil.which("ffprobe") and not getattr(args, "no_probe", False):
+            print("  ! ffprobe not found — take lengths not checked", file=sys.stderr)
     title = args.title or (eps[0].title if len(eps) == 1 else "Storyboard")
     sb = Storyboard(title=title, tagline=args.tagline or "", aspect=args.aspect, episodes=eps)
     if args.chip:
@@ -67,20 +84,77 @@ def _write(path: str | None, text: str, label: str) -> None:
 
 
 def cmd_build(args) -> int:
-    sb = _storyboard(args)
-    theme = load_theme(args.theme, {"accent": args.accent} if args.accent else None)
     out = args.output or "storyboard.html"
-    _write(out, render(sb, theme, start=args.start), "storyboard")
-    if args.model:
-        _write(args.model, sb.dumps(), "model")
+    build_once(args, out)
     if args.open and out != "-":
         webbrowser.open(Path(out).resolve().as_uri())
-    _report(sb)
+    if args.watch:
+        return watch(args, out)
     return 0
 
 
+def build_once(args, out: str) -> None:
+    sb = _storyboard(args, Path(out))
+    theme = load_theme(args.theme, {"accent": args.accent} if args.accent else None)
+    _write(out, render(sb, theme, start=args.start), "storyboard")
+    if args.model:
+        _write(args.model, sb.dumps(), "model")
+    _report(sb)
+
+
+def _watch_paths(args) -> list[Path]:
+    paths = [Path(p) for p in args.input]
+    paths += [Path(p) for p in (args.assets or [])]
+    return [p for p in paths if p.exists()]
+
+
+def watch(args, out: str) -> int:
+    """Rebuild whenever a sheet or a take changes. Ctrl-C to stop."""
+    paths = _watch_paths(args)
+    use_inotify = bool(shutil.which("inotifywait"))
+    how = "inotifywait" if use_inotify else "polling"
+    print(f"\nwatching {len(paths)} path{'s' if len(paths) != 1 else ''} "
+          f"({how}) — ctrl-c to stop", file=sys.stderr)
+    try:
+        while True:
+            if use_inotify:
+                subprocess.run(
+                    ["inotifywait", "-q", "-r", "-e",
+                     "modify,create,move,delete,close_write", "--"]
+                    + [str(p) for p in paths],
+                    stdout=subprocess.DEVNULL)
+                time.sleep(0.2)        # let a writer finish
+            else:
+                before = _stamp(paths)
+                while _stamp(paths) == before:
+                    time.sleep(1.0)
+            print(f"\n[{time.strftime('%H:%M:%S')}] change — rebuilding",
+                  file=sys.stderr)
+            try:
+                build_once(args, out)
+            except SystemExit as e:
+                print(f"  ! {e}", file=sys.stderr)
+            except Exception as e:                      # keep the loop alive
+                print(f"  ! build failed: {e}", file=sys.stderr)
+    except KeyboardInterrupt:
+        print("\nstopped watching", file=sys.stderr)
+    return 0
+
+
+def _stamp(paths: list[Path]):
+    out = []
+    for p in paths:
+        files = sorted(p.rglob("*")) if p.is_dir() else [p]
+        for f in files:
+            try:
+                out.append((str(f), f.stat().st_mtime_ns, f.stat().st_size))
+            except OSError:
+                pass
+    return out
+
+
 def cmd_extract(args) -> int:
-    sb = _storyboard(args)
+    sb = _storyboard(args, Path(args.output or "model.json"))
     _write(args.output, sb.dumps(), "model")
     _report(sb)
     return 0
@@ -103,7 +177,7 @@ def cmd_render(args) -> int:
 
 
 def cmd_check(args) -> int:
-    sb = _storyboard(args)
+    sb = _storyboard(args, Path("."))
     _report(sb, verbose=True)
     return 0
 
@@ -152,6 +226,18 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--wpm", type=int, default=150,
                         help="narration speed used to time untimed transcripts (default 150)")
         sp.add_argument("--start", type=int, default=0, help="episode index to open on")
+        sp.add_argument("--assets", action="append", metavar="DIR",
+                        help="directory of captured takes and stills; files named "
+                             "V01-shot-6.mp4 / shot-6.png are placed on their shot "
+                             "(repeatable)")
+        sp.add_argument("--assets-url", metavar="PREFIX",
+                        help="serve takes from this URL prefix instead of a path "
+                             "relative to the output file")
+        sp.add_argument("--no-probe", action="store_true",
+                        help="skip the ffprobe length check on placed takes")
+        sp.add_argument("--tolerance", type=float, default=1.0, metavar="SECONDS",
+                        help="how far a take may miss its slot before it is "
+                             "reported (default 1.0)")
         sp.add_argument("--exclude", action="append", metavar="GLOB",
                         help="skip files matching this glob when INPUT is a directory "
                              "(repeatable, e.g. --exclude '00-*.md')")
@@ -160,6 +246,8 @@ def build_parser() -> argparse.ArgumentParser:
     common(b)
     b.add_argument("--model", help="also write the intermediate JSON model here")
     b.add_argument("--open", action="store_true", help="open the result in a browser")
+    b.add_argument("--watch", action="store_true",
+                   help="rebuild whenever a sheet or a take changes")
     b.set_defaults(func=cmd_build)
 
     e = sub.add_parser("extract", help="markdown → JSON model (edit it, then render)")

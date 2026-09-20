@@ -42,11 +42,15 @@ class Shot:
     meta: str = ""           # "screen capture · beat 4"
     note: str = ""
     plate: dict = field(default_factory=lambda: {"kind": "scene"})
+    asset: dict | None = None    # the captured take placed on this shot, if any
 
     def json(self) -> dict:
-        return {"num": self.num, "from": round(self.frm, 3), "to": round(self.to, 3),
-                "title": self.title, "meta": self.meta, "note": self.note,
-                "plate": self.plate}
+        out = {"num": self.num, "from": round(self.frm, 3), "to": round(self.to, 3),
+               "title": self.title, "meta": self.meta, "note": self.note,
+               "plate": self.plate}
+        if self.asset:
+            out["asset"] = self.asset
+        return out
 
 
 @dataclass
@@ -136,7 +140,7 @@ def episode_from_json(d: dict) -> Episode:
                for i, b in enumerate(d.get("beats", []))],
         shots=[Shot(s.get("num", ""), float(s["from"]), float(s["to"]), s.get("title", ""),
                     s.get("meta", ""), s.get("note", ""),
-                    s.get("plate") or {"kind": "scene"})
+                    s.get("plate") or {"kind": "scene"}, s.get("asset"))
                for s in d.get("shots", [])],
         captions=[_span(x) for x in d.get("captions", [])],
         lower=[_span(x) for x in d.get("lower", [])],

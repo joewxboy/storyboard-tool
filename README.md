@@ -12,9 +12,19 @@ enough for nine commands before anyone rigs a camera.
 ./bin/storyboard build notes/episode-3.md -o out/ep3.html --open
 ```
 
-No dependencies — Python 3.10+ standard library only. The output has no build
-step and no sidecar assets: open it from disk, drop it on a static host, or
-publish it as an artifact.
+## Requirements
+
+- **Python 3.10+** — standard library only, nothing to install.
+- **ffprobe** *(optional)* — checks a placed take against the slot it has to
+  fit. Without it, takes still play; their length is simply not checked.
+  Part of ffmpeg: `sudo pacman -S ffmpeg` / `apt install ffmpeg`.
+- **inotifywait** *(optional)* — makes `--watch` react instantly instead of
+  polling once a second. From inotify-tools.
+
+The built page itself has no build step and no dependencies: open it from
+disk, drop it on a static host, or publish it as an artifact. Placed takes are
+the exception — they are referenced, not embedded, so they travel with the
+page.
 
 ## Where this came from
 
@@ -103,7 +113,7 @@ episode.
 ./bin/storyboard render model.json -o out.html
 ```
 
-Useful flags: `--title`, `--tagline`, `--chip TEXT` (repeatable),
+Useful flags: `--assets DIR`, `--watch`, `--title`, `--tagline`, `--chip TEXT` (repeatable),
 `--theme midnight|slate|paper|my-theme.json`, `--accent '#4C8DFF'`,
 `--url` (default end-card link), `--duration` (fallback length),
 `--wpm`, `--start N` (episode to open on), `--open`.
@@ -135,15 +145,71 @@ problem: the backup you never tested is not a backup.
 `MODEL.md` for the schema and the full plate reference. A file named
 `SHEET.storyboard.json` next to `SHEET.md` is merged automatically on build.
 
-## Swapping in real footage
+## Placing real footage
 
-The plates are placeholders. As each shot gets captured, point it at the file:
+The plates are placeholders. As shots get captured, name the files after the
+shot they are and point the build at the directory:
 
-```json
-{"kind": "image", "src": "stills/V07-shot-8.png", "caption": "same container, new secret"}
+```bash
+./bin/storyboard build docs/video/V01-*.md --assets takes/ -o out/v01.html --watch
 ```
 
-Relative paths resolve against the HTML page, so keep the stills beside it.
+Recognised names — case-insensitive, `-`/`_`/space interchangeable:
+
+| File | Lands on |
+|------|----------|
+| `V01-shot-6.mp4` | V1, shot 6 — as video |
+| `V01-shot-6-take3.mp4` | V1, shot 6, take 3 — the **highest take wins** |
+| `V01-shot-6.png` | V1, shot 6 — as a still |
+| `shot-6.mp4` | shot 6, when only one episode is being built, or when the file sits in a `V01/` directory |
+
+The episode prefix follows the sheet: `V1` and `V01` both work, and the
+trailer's `Ep 0` also answers to `V00`. When a shot has both a still and a
+take, the take wins; ties break on modification time.
+
+With `--watch`, leave the page open in a browser while you capture — every new
+file rebuilds it. Takes are referenced by a path relative to the output file;
+`--assets-url https://…/takes` points them somewhere else instead.
+
+**The length check.** Each placed take is measured with `ffprobe` and compared
+to the slot the sheet gives it:
+
+```
+takes: 3 placed from 4 files
+  ! V1 shot 6: take is 0:23, slot is 0:14 — 9s over
+```
+
+The shot rail carries the same thing as a badge (`take · #2 · 0:23 clip · 9s
+over slot`), amber when a take is short and red when it overruns. `--tolerance
+SECONDS` sets how far a take may miss before it is reported, and `--no-probe`
+turns the check off.
+
+Browsers play `.mp4`, `.webm`, `.m4v` and `.ogv`. A `.mov` or `.mkv` is placed
+anyway and the build tells you how to transcode it:
+
+```bash
+ffmpeg -i V01-shot-6.mov -c:v libx264 -an V01-shot-6.mp4
+```
+
+For one-off placement without the naming convention, a plate marker still
+works: `[plate: image src=stills/anything.png]`.
+
+## Capturing
+
+Nothing here is needed to use the tool — but for the record, the workflow it
+was built around:
+
+```bash
+# a still, on Wayland
+grim -g "$(slurp)" takes/V01-shot-6.png
+
+# trim a take to its slot, no re-encode
+ffmpeg -ss 4.5 -t 14 -i raw.mp4 -c copy takes/V01-shot-6-take2.mp4
+```
+
+Screen and camera takes come out of OBS, recording straight into `takes/`
+under the shot's name. Anything that needs real assembly goes to an editor;
+this page is for judging timing, not for cutting.
 
 ## Layout
 
@@ -151,6 +217,7 @@ Relative paths resolve against the HTML page, so keep the stills beside it.
 bin/storyboard          run without installing
 storyboard/parse.py     markdown → model (the three input shapes)
 storyboard/plates.py    which plate a shot gets, and what it says
+storyboard/takes.py     finds captured footage and places it on its shot
 storyboard/model.py     the data model + JSON round trip
 storyboard/render.py    model → one self-contained HTML page
 storyboard/theme.py     colour and type tokens

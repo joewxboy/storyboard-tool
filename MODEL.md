@@ -67,6 +67,19 @@ Invariants the player relies on, and `tests/smoke.py` checks:
 }
 ```
 
+## Shot assets
+
+A shot that has captured footage placed on it also carries what was placed
+there, which the shot rail shows as a badge:
+
+```jsonc
+"asset": {"src": "takes/V01-shot-6-take2.mp4", "kind": "video",
+          "take": 2, "clip": 23.0, "slot": 14.0, "over": 9.0}
+```
+
+`over` is present only when the take misses its slot by more than the build's
+`--tolerance`: positive when the take is long, negative when it is short.
+
 ## Plates
 
 One per shot. `kind` picks the builder; unknown kinds fall back to `scene`.
@@ -85,6 +98,7 @@ Each plate animates across the shot's own progress, 0 → 1.
 | `chat` | a question, a think, an answer | `title`, `q`, `a`, `think`, `badge` |
 | `progress` | a progress bar with named stages | `title`, `stages` |
 | `image` | a real still or frame grab | `src`, `caption`, `fit` |
+| `video` | a captured take, cut to the shot's slot | `src`, `slot`, `clip`, `trim`, `fit` |
 
 ### `term.script`
 
@@ -110,6 +124,21 @@ A list of `[text, kind]` lines, revealed by typing speed:
 start state. Rows resolve in order around `flip` (0 → 1, default 0.45). The
 pill colours itself from the state's wording: `online`/`ready` green,
 `offline`/`idle` grey, `failed`/`down` red, `pending`/`waiting` amber.
+
+### `video`
+
+```jsonc
+{"kind": "video", "src": "takes/V01-shot-6-take2.mp4",
+ "slot": 14,        // seconds the shot occupies — the clip is cut to this
+ "clip": 23,        // the take's real length, from ffprobe (optional)
+ "trim": 0,         // start this far into the file (optional)
+ "fit": "cover"}    // or "contain"
+```
+
+The storyboard clock is the master: the clip follows it while playing at 1×
+and is scrubbed frame by frame otherwise, so a take that overruns its slot is
+visibly cut off rather than quietly stretching the episode. Video is muted —
+this is a timing tool, not a review tool.
 
 ### `glyph`
 

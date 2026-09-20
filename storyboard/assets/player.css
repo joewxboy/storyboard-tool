@@ -282,7 +282,8 @@ header.season { display: flex; flex-direction: column; gap: 14px; }
 }
 
 /* real footage / stills */
-.shotimg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.shotimg, .shotvid { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.shotvid { background: #000; }
 .imgfail {
   position: absolute; inset: 0; display: grid; place-items: center; padding: 0 8cqw;
   font-family: var(--mono); font-size: 2.6cqw; color: var(--dimmer); text-align: center;
@@ -403,6 +404,15 @@ button[aria-pressed="true"] { background: var(--accent); border-color: var(--acc
 .shot .ttl { color: var(--ink); font-weight: 500; display: block; margin-bottom: 2px; }
 .shot .meta { font-family: var(--mono); font-size: 10.5px; color: var(--dimmer); letter-spacing: 0.04em; }
 .shot .note { display: block; margin-top: 4px; font-size: 12.5px; line-height: 1.45; }
+.shot .take {
+  display: inline-block; margin-top: 5px;
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.04em;
+  color: var(--signal); border: 1px solid currentColor;
+  border-radius: 2px; padding: 1px 6px;
+}
+.shot .take.over  { color: var(--alarm); }
+.shot .take.under { color: var(--amber); }
+
 .shot.on { background: var(--panel2); border-left-color: var(--accent); border-color: var(--line); }
 .shot.on .num { color: var(--accent); }
 
