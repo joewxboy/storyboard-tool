@@ -1,0 +1,16 @@
+{
+  "ground": "#0F141A",
+  "panel": "#161D26",
+  "panel2": "#1C242F",
+  "line": "#2E3B4A",
+  "line2": "#222C38",
+  "ink": "#EAF0F6",
+  "dim": "#93A3B4",
+  "dimmer": "#63717F",
+  "accent": "#4C8DFF",
+  "accentSoft": "#1D3E73",
+  "signal": "#43C08A",
+  "alarm": "#EE6352",
+  "frame": "#080C11",
+  "plate": "#0C1118"
+}

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__</title>
+__FONTS__
+<style>
+:root {
+__THEME__
+    --aspect: __ASPECT__;
+}
+__CSS__
+</style>
+</head>
+<body>
+<div class="bay">
+
+  <header class="season">
+    <div class="season-top">
+      <div>
+        <h1>__HEADING__</h1>
+        <p>__TAGLINE__</p>
+      </div>
+      <div class="spec">__CHIPS__</div>
+    </div>
+    <div class="eps" id="eps" role="tablist" aria-label="Episodes"></div>
+  </header>
+
+  <div class="stage">
+    <section class="monitor">
+      <div class="now-playing">
+        <h2 id="np-title"></h2>
+        <p class="moment" id="np-moment-wrap">Premise: <em id="np-moment"></em></p>
+      </div>
+
+      <div class="frame-wrap">
+        <div class="frame" id="frame">
+          <div id="plates"></div>
+
+          <div class="machine-label" id="mlabel" hidden></div>
+          <div class="lower-third" id="lthird" hidden></div>
+          <div class="caption" id="caption" hidden></div>
+          <div class="endcard" id="endcard" hidden>
+            <span class="eyebrow" style="font-size:2.5cqw" id="ec-eyebrow"></span>
+            <div class="rule"></div>
+            <p class="big" id="ec-big"></p>
+            <p class="url" id="ec-url"></p>
+          </div>
+          <div class="sting" id="sting"></div>
+
+          <div class="guides" id="guides">
+            <div class="safe"></div>
+            <div class="safe title"></div>
+            <div class="third" style="left:33.33%;top:0;bottom:0;width:1px"></div>
+            <div class="third" style="left:66.66%;top:0;bottom:0;width:1px"></div>
+            <div class="third" style="top:33.33%;left:0;right:0;height:1px"></div>
+            <div class="third" style="top:66.66%;left:0;right:0;height:1px"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="transport">
+        <div class="scrub" id="scrub" role="slider" tabindex="0"
+             aria-label="Timeline position" aria-valuemin="0" aria-valuemax="150" aria-valuenow="0">
+          <div id="segs"></div>
+          <div id="ticks"></div>
+          <div class="playhead" id="playhead" style="left:0"></div>
+        </div>
+        <div class="controls">
+          <button id="play" aria-label="Play or pause">▶ play</button>
+          <button id="back">⟲ 0:00</button>
+          <span class="tc"><span id="tcnow">0:00</span><span class="tot" id="tctot"> / 0:00</span></span>
+          <button id="rate" aria-pressed="false">1×</button>
+          <button id="guidebtn" aria-pressed="false">guides</button>
+          <span class="beatnow" id="beatnow"></span>
+        </div>
+      </div>
+    </section>
+
+    <aside class="rails">
+      <section>
+        <div class="rail-head">
+          <h3>Beats</h3>
+          <span class="count" id="beatcount"></span>
+        </div>
+        <div class="beatlist" id="beatlist"></div>
+      </section>
+      <section>
+        <div class="rail-head">
+          <h3>Shot list</h3>
+          <span class="count" id="shotcount"></span>
+        </div>
+        <div class="shotlist" id="shotlist"></div>
+      </section>
+      <section id="assetsec" hidden>
+        <div class="rail-head">
+          <h3>Assets</h3>
+          <span class="count">tick as captured</span>
+        </div>
+        <div class="assetlist" id="assetlist"></div>
+      </section>
+    </aside>
+  </div>
+
+  <footer class="notes">
+__NOTES__
+  </footer>
+</div>
+
+<script>window.STORYBOARD = __DATA__;</script>
+<script>
+__JS__
+</script>
+</body>
+</html>
