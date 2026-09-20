@@ -45,7 +45,7 @@ def _glyph(text: str) -> str:
 
 
 SHELLY = re.compile(
-    r"^(?:sudo\s+)?[a-z][\w.\-]*\s+[\w./\-\$\'\"{|]", re.I)
+    r"^(?:sudo\s+)?[a-z][\w.\-]*\s+[\w./\-\$\'\"{|\u2026]", re.I)
 
 
 def _commands(text: str) -> list[str]:
@@ -86,13 +86,27 @@ def _marker(note: str) -> dict | None:
 
 
 def infer_plate(shot, episode) -> dict:
-    raw = (shot.plate or {}).get("raw") or f"{shot.title} {shot.note}"
-    blob = f"{shot.title} · {shot.note}"
-    low = blob.lower()
+    plate = shot.plate or {}
+    raw = plate.get("raw") or f"{shot.title} {shot.note}"
+    title_raw = plate.get("rawTitle") or shot.title
 
     explicit = _marker(shot.note) or _marker(raw)
     if explicit:
-        return _finish(explicit, blob)
+        return _finish(explicit, raw)
+
+    # The title is what is in frame; the note is direction about it. Read the
+    # title on its own first so a note that merely mentions "the browser" or
+    # "a shell" does not decide the plate.
+    return _infer(shot, title_raw) or _infer(shot, raw, strict=True) or {
+        "kind": "scene", "label": _short(shot.title, 52), "glyph": _glyph(raw)}
+
+
+def _infer(shot, raw: str, strict: bool = False) -> dict | None:
+    """One pass over one piece of text. ``strict`` is the notes pass: only
+    signals strong enough to survive being mentioned in passing count, so a
+    note that says "the browser still reaches it" does not make a browser."""
+    blob = raw
+    low = blob.lower()
 
     img = IMG.search(raw)
     if img:
@@ -102,37 +116,33 @@ def infer_plate(shot, episode) -> dict:
         if "/" in src:
             return {"kind": "image", "src": src, "caption": shot.title}
 
+    card = re.search(r"motion graphic|title card|end card|punchline|graphic|montage still", low)
+    if card:
+        q = QUOTED.search(raw)
+        return {"kind": "card", "line": _short(q.group(1) if q else shot.title, 64),
+                "glyph": _glyph(blob)}
+
     cmds = _commands(raw)
     prompted = [c for c in cmds if not c.startswith("$ ") or c.startswith("$ $")]
     fileish = re.search(r"editor\b|service definition|config file|manifest|\bfile\b|"
                         r"\.(json|ya?ml|toml|conf|env)\b", low)
-    termish = re.search(r"terminal|shell|prompt|ssh\b|exec\b|\brun\b|command line", low)
+    termish = re.search(r"terminal|shell\b|\bcommand\b|\bcli\b|prompt|\bexec\b", low)
     if fileish and not prompted and not termish:
         return _file_plate(shot, raw)
 
-    if cmds or re.search(r"terminal|shell|command|cli|ssh|prompt \$", low):
-        spec: dict = {"kind": "term"}
-        label = re.match(r"^`?([a-z][\w.\-]{1,20})`?\s*:", shot.title)
-        if label:
-            spec["label"] = label.group(1)
-        if re.search(r"split[- ]screen|side by side|both", low) and len(cmds) >= 2:
-            half = max(1, len(cmds) // 2)
-            spec["split"] = True
-            spec["headL"], spec["headR"] = _split_heads(blob)
-            spec["script"] = _script(cmds[:half])
-            spec["script2"] = _script(cmds[half:])
-        else:
-            spec["script"] = _script(cmds or ["$ " + re.sub(r"\s+", " ", shot.title)[:48]])
-        return spec
-
+    if cmds:
+        return _term_plate(shot, blob, low, cmds)
     if re.search(r"talking head|to camera|piece to camera|creator|face enters|presenter", low):
         return {"kind": "head"}
+
+    if re.search(r"progress bar|flashing|writing to|install(?:ing)?|upload|download", low):
+        return {"kind": "progress", "title": _short(shot.title, 44)}
 
     if re.search(r"wait|timelapse|time-?lapse|poll|elapsed|countdown|jump-?cut", low):
         return {"kind": "wait", "label": _short(shot.title),
                 "to": max(5, int(shot.to - shot.frm))}
 
-    if re.search(r"chat|ask|prompt the model|question|answer|conversation|llm", low):
+    if not strict and re.search(r"chat|ask|prompt the model|question|answer|conversation|llm", low):
         q = QUOTED.search(raw)
         return {"kind": "chat",
                 "title": _short(shot.title, 40),
@@ -140,20 +150,36 @@ def infer_plate(shot, episode) -> dict:
                 "a": "…answering locally.",
                 "badge": "offline" if re.search(r"offline|unplug|no internet", low) else ""}
 
-    if re.search(r"dashboard|browser|web ?ui|console|app window|portal|status page|list of nodes", low):
+    if not strict and re.search(r"dashboard|browser|web ?ui|console|app window|portal|status page|"
+                 r"list of nodes|settings pane|dialog|wizard|installer|preferences|"
+                 r"fields filled|\bform\b", low):
         return {"kind": "app", "title": _short(shot.title, 44),
                 "rows": _rows(raw), "flip": 0.45}
 
-    if PATH.search(raw) or re.search(
-            r"editor|file|config|json|ya?ml|manifest|definition|\bdef\b|block|snippet|code", low):
+    if not strict and (PATH.search(raw) or re.search(
+            r"editor|file|config|json|ya?ml|manifest|definition|\bdef\b|block|snippet|code", low)):
         return _file_plate(shot, raw)
 
-    if re.search(r"card|motion graphic|graphic|title|punchline|end card|montage still", low):
-        q = QUOTED.search(raw)
-        return {"kind": "card", "line": _short(q.group(1) if q else shot.title, 64),
-                "glyph": _glyph(blob)}
+    if termish and not strict:
+        return _term_plate(shot, blob, low, cmds)
 
-    return {"kind": "scene", "label": _short(shot.title, 52), "glyph": _glyph(blob)}
+    return None
+
+
+def _term_plate(shot, blob: str, low: str, cmds: list[str]) -> dict:
+    spec: dict = {"kind": "term"}
+    label = re.match(r"^`?([a-z][\w.\-]{1,20})`?\s*:", shot.title)
+    if label:
+        spec["label"] = label.group(1)
+    if re.search(r"split[- ]screen|side by side|both", low) and len(cmds) >= 2:
+        half = max(1, len(cmds) // 2)
+        spec["split"] = True
+        spec["headL"], spec["headR"] = _split_heads(blob)
+        spec["script"] = _script(cmds[:half])
+        spec["script2"] = _script(cmds[half:])
+    else:
+        spec["script"] = _script(cmds or ["$ " + re.sub(r"\s+", " ", shot.title)[:48]])
+    return spec
 
 
 def _file_plate(shot, raw: str) -> dict:
@@ -195,13 +221,17 @@ def _split_heads(blob: str) -> tuple[str, str]:
 
 
 def _rows(raw: str) -> list[list[str]]:
-    names = re.findall(r"`([a-z][\w.\-]{1,24})`", raw)
+    """Rows for an app plate: backticked names first, then a 'a / b / c' list."""
     seen: list[str] = []
-    for n in names:
+    for n in re.findall(r"`([a-z][\w.\-]{1,24})`", raw):
         if n not in seen and not n.startswith(("$", "#")):
             seen.append(n)
-    rows = [[n, "online"] for n in seen[:4]]
-    return rows or [["item-1", "online"], ["item-2", "offline"]]
+    if not seen:
+        m = re.search(r"((?:[\w*][\w *\-]{1,22}\s*/\s*){1,3}[\w*][\w *\-]{1,22})", raw)
+        if m:
+            seen = [_short(x, 22) for x in m.group(1).split("/") if x.strip()]
+    rows = [[n, "set"] for n in seen[:4]]
+    return rows or [["item-1", "ready"], ["item-2", "idle"]]
 
 
 def _short(text: str, n: int = 56) -> str:

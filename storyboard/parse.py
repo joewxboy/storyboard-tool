@@ -423,7 +423,8 @@ def _parse_shots(secs, ep: Episode) -> list[Shot]:
                           frm=span[0] if span else -1.0,
                           to=span[1] if span else -1.0,
                           title=title, meta=meta, note=strip_md(note),
-                          plate={"kind": "auto", "raw": title_raw + " " + note}))
+                          plate={"kind": "auto", "raw": title_raw + " " + note,
+                                 "rawTitle": title_raw}))
     _assign_times(shots, ep)
     return shots
 
@@ -435,7 +436,7 @@ def _split_title_meta(title_raw: str, note: str) -> tuple[str, str]:
     for pat, label in (
         (r"talking head|to camera|piece to camera", "camera"),
         (r"screen ?(capture|recording)|terminal|shell|cli", "screen capture"),
-        (r"motion graphic|title card|card\b|graphic", "motion graphic"),
+        (r"motion graphic|title card|end card|punchline card|graphic", "motion graphic"),
         (r"b-?roll|cutaway|establishing", "b-roll"),
         (r"timelapse|jump-?cut|wait", "timelapse"),
         (r"montage", "montage"),
@@ -464,8 +465,12 @@ def _assign_times(shots: list[Shot], ep: Episode) -> None:
         m = BEAT_REF_RE.search(s.meta + " " + s.note + " " + s.title)
         key: tuple = ()
         if m:
-            nums = [int(x) for x in re.findall(r"\d+", m.group(1)) if int(x) in beats]
-            key = tuple(sorted(nums))
+            nums = sorted({int(x) for x in re.findall(r"\d+", m.group(1)) if int(x) in beats})
+            # Non-contiguous references ("beats 2, 4") would otherwise swallow
+            # the beat between them, so take the first beat named.
+            if nums and nums[-1] - nums[0] + 1 != len(nums):
+                nums = [nums[0]]
+            key = tuple(nums)
         groups.setdefault(key, []).append(s)
 
     for key, members in groups.items():
@@ -548,23 +553,40 @@ def _fill_gaps(ep: Episode) -> None:
                          meta="", note="", plate={"kind": "card", "line": ep.title})]
         return
     ep.shots.sort(key=lambda s: (s.frm, s.to))
+    i = 0
+    while i < len(ep.shots):
+        run = [ep.shots[i]]
+        while i + len(run) < len(ep.shots) and abs(ep.shots[i + len(run)].frm - run[0].frm) < 0.75:
+            run.append(ep.shots[i + len(run)])
+        if len(run) > 1:
+            start, stop = run[0].frm, max(x.to for x in run)
+            step = (stop - start) / len(run)
+            for k, x in enumerate(run):
+                x.frm, x.to = start + k * step, start + (k + 1) * step
+        i += len(run)
+    ep.shots.sort(key=lambda s: (s.frm, s.to))
     for i, s in enumerate(ep.shots):
         s.frm = max(0.0, min(s.frm, ep.duration))
         s.to = max(s.frm + 0.5, min(s.to, ep.duration))
         if i + 1 < len(ep.shots):
             nxt = ep.shots[i + 1]
-            if nxt.frm > s.to + 0.25:
-                s.to = nxt.frm
+            # No gaps and no overlaps: exactly one shot is live at any second.
+            if abs(nxt.frm - s.to) > 0.25:
+                s.to = max(s.frm + 0.5, nxt.frm)
     ep.shots[0].frm = 0.0
     ep.shots[-1].to = ep.duration
 
 
 # ------------------------------------------------------------- overlays ----
 
-QUOTED = re.compile(r"[“\"]([^”\"]{3,140})[”\"]")
+# Sheets write burned-in text as *"like this"*, which is the most reliable
+# signal for it; INNER also lets a quoted line carry a nested quote.
+ITALIC_QUOTED = re.compile(r'\*["“](.{5,200}?)["”]\*')
+INNER = r'(?:[^”“"\n]|["“](?=\w))'
+QUOTED = re.compile(r'["“](' + INNER + r'{3,160})["”]')
 CAPTION_RE = re.compile(
-    r"(?:caption(?:\s+overlay)?|on-?screen(?:\s+(?:line|text|card))?|burn(?:ed)?-?in)\s*[:—-]\s*"
-    r"[“\"*]*([^”\"*\n\.][^”\"*\n]{2,140})", re.I)
+    r"(?:caption(?:\s+overlay)?|on-?screen(?:\s+(?:line|text|card))?|burn(?:ed)?-?in)"
+    r"[^:—\n]{0,24}[:—]\s*[“\"*]*(" + INNER + r"{3,150})", re.I)
 CMD_RE = re.compile(r"`([^`\n]{2,90})`")
 LABEL_RE = re.compile(r"(?:machine label|label|host|node|\bon\b|\bat\b)[^`\n]{0,16}`([A-Za-z0-9][\w.\-]{1,24})`", re.I)
 
@@ -575,7 +597,7 @@ def _derive_overlays(ep: Episode) -> None:
         # and backticks are what mark commands, hosts and file names.
         blob = (s.plate or {}).get("raw") or (s.title + " · " + s.note)
         for m in CAPTION_RE.finditer(blob):
-            text = strip_md(m.group(1)).strip(" —-’'\".")
+            text = _clean_quote(m.group(1))
             if text and not any(c.text == text for c in ep.captions):
                 ep.captions.append(Span(s.frm, s.to, text))
         from .plates import _commands
@@ -595,9 +617,16 @@ def _derive_overlays(ep: Episode) -> None:
     if not ep.problem and ep.beats:
         first = ep.beats[0]
         pool = first.content or " ".join(s.note for s in ep.shots if s.to <= first.to)
-        m = CAPTION_RE.search(pool) or QUOTED.search(pool)
-        if m:
-            ep.problem = strip_md(m.group(1)).strip(" —-’'\".")
+        italics = ITALIC_QUOTED.findall(pool)
+        m = CAPTION_RE.search(pool)
+        quotes = [q for q in QUOTED.findall(pool) if len(q) >= 20]
+        if italics:
+            ep.problem = _clean_quote(max(italics, key=len))
+        elif m:
+            ep.problem = _clean_quote(m.group(1))
+        elif quotes:
+            ep.problem = _clean_quote(max(quotes, key=len))
+        if ep.problem:
             ep.problem_until = first.to
 
     ep.captions = _dedupe(ep.captions)
@@ -611,15 +640,22 @@ def _derive_overlays(ep: Episode) -> None:
     ep.endcard.setdefault("line", ep.title or ep.code)
 
 
+def _clean_quote(text: str) -> str:
+    """Trim the markup around a quoted line without eating its own punctuation."""
+    t = strip_md(text).strip()
+    t = t.strip("*").strip()
+    t = t.strip("\"\u201c\u201d").strip()
+    return t.rstrip("\u2014 -")
+
+
 def _dedupe(spans: list[Span]) -> list[Span]:
     """Drop repeats — the same line often appears in a shot and in the copy block."""
     seen: dict[str, Span] = {}
     for sp in spans:
         key = re.sub(r"[^a-z0-9]+", "", sp.text.lower())
         if key in seen:
-            keep = seen[key]
-            keep.frm, keep.to = min(keep.frm, sp.frm), max(keep.to, sp.to)
-            continue
+            continue        # keep the first placement; merging would stretch it
+                            # across every shot whose notes repeat the line
         seen[key] = sp
     return list(seen.values())
 

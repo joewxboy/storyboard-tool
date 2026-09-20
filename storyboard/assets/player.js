@@ -308,7 +308,9 @@
         var wr = Math.min(1, p / 0.82);
         bar.style.width = (wr * 100).toFixed(1) + "%";
         pct.textContent = Math.round(wr * 100) + "%";
-        stage.textContent = stages[Math.min(stages.length - 1, Math.floor(p * stages.length))];
+        // the first stage lasts as long as the bar is filling
+        var idx = wr < 1 ? 0 : 1 + Math.floor((p - 0.82) / 0.18 * (stages.length - 1));
+        stage.textContent = stages[Math.max(0, Math.min(stages.length - 1, idx))];
       } };
     },
 
