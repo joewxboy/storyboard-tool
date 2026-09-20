@@ -90,6 +90,18 @@ with tempfile.TemporaryDirectory() as tmp:
     check(all(s.asset is None for n, s in by_num.items() if n not in (4, 6)),
           "only matching shots are touched")
 
+    # final beats a numbered take, and coverage totals both ways
+    (d / "V03-shot-6-final.png").write_bytes(b"x")
+    attach([beat_sheet_ep], scan([d]), out_dir=d, probe=False)
+    check(by_num[6].asset["state"] == "final", "-final marks the shot final")
+    check(by_num[4].asset["state"] == "draft", "a numbered take is a draft")
+    cov = beat_sheet_ep.coverage()
+    check(cov["captured"] == 2 and cov["final"] == 1 and cov["draft"] == 1,
+          f"coverage counts: {cov}")
+    covered = sum(s.to - s.frm for s in (by_num[4], by_num[6]))
+    check(abs(cov["seconds"] - covered) < 0.01, "coverage seconds")
+    check(cov["pct"] == round(100 * covered / beat_sheet_ep.duration), "coverage pct")
+
     # the length check
     slot = by_num[4].to - by_num[4].frm
     found2 = scan([d])

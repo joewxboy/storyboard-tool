@@ -190,6 +190,19 @@ def _report(sb: Storyboard, verbose: bool = False) -> None:
               f"{len(ep.beats)} beats · {len(ep.shots)} shots · "
               f"{len(ep.captions)} captions"
               + (f"  [{mode}]" if mode else ""), file=sys.stderr)
+        cov = ep.coverage()
+        if cov["captured"]:
+            bits = [f"{cov['captured']}/{cov['shots']} shots captured",
+                    f"{timecode(cov['seconds'])} of {timecode(ep.duration)}"
+                    f" ({cov['pct']}%)"]
+            if cov["final"]:
+                bits.append(f"{cov['final']} final")
+            if cov["draft"]:
+                bits.append(f"{cov['draft']} draft")
+            if cov["over"]:
+                bits.append(f"{cov['over']} off slot")
+            bits.append(f"{cov['shots'] - cov['captured']} placeholder")
+            print("  coverage: " + " · ".join(bits), file=sys.stderr)
         if verbose:
             for b in ep.beats:
                 own = [s for s in ep.shots if s.frm >= b.frm - 0.01 and s.to <= b.to + 0.01]

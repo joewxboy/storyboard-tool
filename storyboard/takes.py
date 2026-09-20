@@ -10,10 +10,18 @@ Recognised names (case-insensitive, separators interchangeable)::
     V01-shot-6.png          still for shot 6 of V1
     V01-shot-6.mp4          footage for shot 6
     V01-shot-6-take3.mp4    take 3 — the highest take number wins
+    V01-shot-6-final.mp4    the finished shot; beats any numbered take
     shot-6.mp4              episode taken from the directory, or the only one
 
-Ordering when several files match one shot: highest take number first, then
-video over still, then most recently modified.
+Ordering when several files match one shot: anything marked ``final`` first,
+then the highest take number, then video over still, then most recently
+modified.
+
+A shot is therefore in one of three states, which the build totals and the
+page shows: **placeholder** (nothing captured), **draft** (a take is in), or
+**final**. Filenames alone cannot say a take is the last one, so ``final`` is
+an explicit mark — the suffix above, or ``"state": "final"`` on the shot's
+asset in a sidecar model.
 """
 from __future__ import annotations
 
@@ -31,7 +39,8 @@ BROWSER_VIDEO = {".mp4", ".webm", ".m4v", ".ogv"}
 STEM_RE = re.compile(
     r"^(?:(?P<ep>[a-z]{1,3}[ _-]?\d{1,3})[-_ ]+)?"
     r"shot[-_ ]*(?P<n>\d{1,3})"
-    r"(?:[-_ ]*(?:take[-_ ]*)?(?P<take>\d{1,3}))?$", re.I)
+    r"(?:[-_ ]*(?:take[-_ ]*)?(?P<take>\d{1,3}))?"
+    r"(?:[-_ ]*(?P<final>final|fin|approved))?$", re.I)
 
 
 @dataclass
@@ -41,11 +50,13 @@ class Take:
     episode: str | None      # normalised episode key, e.g. "V01"
     take: int
     kind: str                # "video" | "image"
+    final: bool = False      # marked finished in the filename
     duration: float | None = None   # seconds, from ffprobe (video only)
 
     @property
     def sort_key(self):
-        return (self.take, self.kind == "video", self.path.stat().st_mtime)
+        return (self.final, self.take, self.kind == "video",
+                self.path.stat().st_mtime)
 
 
 def episode_keys(ep) -> set[str]:
@@ -89,7 +100,8 @@ def scan(dirs: list[str | Path]) -> list[Take]:
                 parent = _norm(path.parent.name)
                 ep = parent if re.fullmatch(r"[A-Z]{1,3}\d{1,3}", parent) else None
             found.append(Take(path=path, shot=int(m.group("n")), episode=ep,
-                              take=int(m.group("take") or 0), kind=kind))
+                              take=int(m.group("take") or 0), kind=kind,
+                              final=bool(m.group("final"))))
     return found
 
 
@@ -157,6 +169,7 @@ def attach(episodes: list, takes: list[Take], *, out_dir: Path,
                 shot.plate = {"kind": "image", "src": src, "caption": shot.title}
 
             shot.asset = {"src": src, "kind": take.kind, "take": take.take,
+                          "state": "final" if take.final else "draft",
                           "clip": round(take.duration, 2) if take.duration else None,
                           "slot": round(slot, 2)}
 
@@ -187,3 +200,24 @@ def _relative(path: Path, out_dir: Path) -> str:
 def _tc(seconds: float) -> str:
     s = int(round(seconds))
     return f"{s // 60}:{s % 60:02d}"
+
+
+def coverage(ep) -> dict:
+    """How much of an episode is real footage rather than placeholder.
+
+    Counted two ways, because they answer different questions: shots tell you
+    how many things are left to capture, seconds tell you how much of the
+    running time is still imagined.
+    """
+    shots = len(ep.shots)
+    captured = [s for s in ep.shots if s.asset]
+    final = [s for s in captured if (s.asset or {}).get("state") == "final"]
+    over = [s for s in captured if (s.asset or {}).get("over")]
+    seconds = sum(s.to - s.frm for s in captured)
+    dur = ep.duration or 1
+    return {
+        "shots": shots, "captured": len(captured), "final": len(final),
+        "draft": len(captured) - len(final), "over": len(over),
+        "seconds": round(seconds, 2), "duration": round(ep.duration, 2),
+        "pct": round(100 * seconds / dur),
+    }

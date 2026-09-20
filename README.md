@@ -160,6 +160,7 @@ Recognised names — case-insensitive, `-`/`_`/space interchangeable:
 |------|----------|
 | `V01-shot-6.mp4` | V1, shot 6 — as video |
 | `V01-shot-6-take3.mp4` | V1, shot 6, take 3 — the **highest take wins** |
+| `V01-shot-6-final.mp4` | V1, shot 6, finished — beats any numbered take |
 | `V01-shot-6.png` | V1, shot 6 — as a still |
 | `shot-6.mp4` | shot 6, when only one episode is being built, or when the file sits in a `V01/` directory |
 
@@ -167,9 +168,29 @@ The episode prefix follows the sheet: `V1` and `V01` both work, and the
 trailer's `Ep 0` also answers to `V00`. When a shot has both a still and a
 take, the take wins; ties break on modification time.
 
+Every shot is therefore in one of three states — **placeholder** (nothing
+captured), **draft** (a take is in), **final**. A filename cannot say which
+take is the last one, so `final` is an explicit mark: the `-final` suffix
+above (`-fin` and `-approved` also work), or `"state": "final"` on that shot's
+asset in a sidecar model.
+
 With `--watch`, leave the page open in a browser while you capture — every new
 file rebuilds it. Takes are referenced by a path relative to the output file;
 `--assets-url https://…/takes` points them somewhere else instead.
+
+**Coverage.** Once anything is placed, the build totals what is real:
+
+```
+V1  2:30  7 beats · 9 shots · 2 captions
+  coverage: 4/9 shots captured · 0:52 of 2:30 (35%) · 1 final · 3 draft · 2 off slot · 5 placeholder
+```
+
+Shots tell you how much is left to capture; seconds tell you how much of the
+running time is still imagined — a 9-shot episode can be two thirds captured
+by shot count and a third by clock. The page carries the same thing three
+ways: a bar and readout under the episode title, a dot on every row of the
+shot list (hollow placeholder, amber draft, green final), and the scrub bar's
+tick lane, where captured stretches are solid and placeholder ones hatched.
 
 **The length check.** Each placed take is measured with `ffprobe` and compared
 to the slot the sheet gives it:
@@ -217,7 +238,7 @@ this page is for judging timing, not for cutting.
 bin/storyboard          run without installing
 storyboard/parse.py     markdown → model (the three input shapes)
 storyboard/plates.py    which plate a shot gets, and what it says
-storyboard/takes.py     finds captured footage and places it on its shot
+storyboard/takes.py     finds captured footage, places it, totals coverage
 storyboard/model.py     the data model + JSON round trip
 storyboard/render.py    model → one self-contained HTML page
 storyboard/theme.py     colour and type tokens

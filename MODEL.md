@@ -74,11 +74,22 @@ there, which the shot rail shows as a badge:
 
 ```jsonc
 "asset": {"src": "takes/V01-shot-6-take2.mp4", "kind": "video",
-          "take": 2, "clip": 23.0, "slot": 14.0, "over": 9.0}
+          "take": 2, "state": "draft",     // "draft" | "final"
+          "clip": 23.0, "slot": 14.0, "over": 9.0}
 ```
 
 `over` is present only when the take misses its slot by more than the build's
 `--tolerance`: positive when the take is long, negative when it is short.
+`state` is `final` when the file was marked so (a `-final` suffix) or when a
+sidecar says it; a shot with no `asset` at all is a placeholder.
+
+Each episode also carries the totals, recomputed on every build — the page
+reads them, nothing writes them by hand:
+
+```jsonc
+"coverage": {"shots": 9, "captured": 4, "final": 1, "draft": 3,
+             "over": 2, "seconds": 52.0, "pct": 35}
+```
 
 ## Plates
 

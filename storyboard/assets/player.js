@@ -443,7 +443,7 @@
       elBeatList = $("beatlist"), elShotList = $("shotlist"),
       elAssets = $("assetlist"), elAssetSec = $("assetsec"),
       elBeatCount = $("beatcount"), elShotCount = $("shotcount"),
-      elNpTitle = $("np-title"), elNpMoment = $("np-moment"),
+      elNpTitle = $("np-title"), elNpMoment = $("np-moment"), elCov = $("coverage"),
       elMomentWrap = $("np-moment-wrap");
 
   var ep = null, plateObjs = [], beatBtns = [], shotBtns = [], segEls = [], live = -1;
@@ -475,6 +475,21 @@
     ecEyebrow.textContent = card.eyebrow || "";
     ecUrl.textContent = card.url || "";
     ecUrl.hidden = !card.url;
+    var cov = ep.coverage || { captured: 0, shots: ep.shots.length, pct: 0 };
+    if (elCov) {
+      if (cov.captured) {
+        var cbits = [cov.captured + "/" + cov.shots + " shots",
+                     tc(cov.seconds) + " of " + tc(ep.dur) + " captured"];
+        if (cov.final) cbits.push(cov.final + " final");
+        if (cov.draft) cbits.push(cov.draft + " draft");
+        elCov.hidden = false;
+        elCov.querySelector("[data-cov-text]").textContent = cbits.join(" \u00b7 ");
+        elCov.querySelector("[data-cov-bar]").style.width = cov.pct + "%";
+        elCov.classList.toggle("done", cov.captured === cov.shots);
+      } else {
+        elCov.hidden = true;
+      }
+    }
     elTot.textContent = " / " + tc(ep.dur);
     elScrub.setAttribute("aria-valuemax", String(ep.dur));
     elBeatCount.textContent = ep.beats.length + " beats";
@@ -516,6 +531,10 @@
       var e = el("button", "shot");
       e.innerHTML = '<span class="num"></span><span><span class="ttl"></span>' +
                     '<span class="meta"></span><span class="note"></span></span>';
+      var state = s.asset ? (s.asset.state === "final" ? "final" : "draft")
+                          : "placeholder";
+      e.classList.add("is-" + state);
+      e.title = state;
       e.querySelector(".num").textContent = s.num === "" || s.num == null ? "—" : s.num;
       e.querySelector(".ttl").textContent = s.title;
       e.querySelector(".meta").textContent = tc(s.from) + "–" + tc(s.to) +
@@ -545,6 +564,11 @@
       var lab = el("label");
       var cb = document.createElement("input");
       cb.type = "checkbox";
+      var key = "sb:" + (ep.code || i) + ":asset:" + j;
+      try { cb.checked = localStorage.getItem(key) === "1"; } catch (err) {}
+      cb.addEventListener("change", function () {
+        try { localStorage.setItem(key, cb.checked ? "1" : "0"); } catch (err) {}
+      });
       var sp = el("span");
       sp.textContent = a;
       lab.appendChild(cb); lab.appendChild(sp);
@@ -562,7 +586,8 @@
       return e;
     });
     ep.shots.forEach(function (s) {
-      var e = el("div", "tick");
+      var e = el("div", "tick " +
+        (s.asset ? (s.asset.state === "final" ? "final" : "draft") : "placeholder"));
       e.style.left = (s.from / ep.dur * 100) + "%";
       e.style.width = ((s.to - s.from) / ep.dur * 100) + "%";
       e.innerHTML = "<span></span>";

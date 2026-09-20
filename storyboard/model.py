@@ -84,8 +84,20 @@ class Episode:
     bonus: bool = False
     source: str = ""                              # path it was parsed from
 
+    def coverage(self) -> dict:
+        """Shot and second counts for what is captured rather than imagined."""
+        captured = [s for s in self.shots if s.asset]
+        final = [s for s in captured if (s.asset or {}).get("state") == "final"]
+        over = [s for s in captured if (s.asset or {}).get("over")]
+        seconds = sum(s.to - s.frm for s in captured)
+        return {"shots": len(self.shots), "captured": len(captured),
+                "final": len(final), "draft": len(captured) - len(final),
+                "over": len(over), "seconds": round(seconds, 2),
+                "pct": round(100 * seconds / (self.duration or 1))}
+
     def json(self) -> dict:
         return {
+            "coverage": self.coverage(),
             "code": self.code, "title": self.title, "chapter": self.chapter,
             "dur": round(self.duration, 3), "moment": self.moment,
             "problem": self.problem, "problemUntil": round(self.problem_until, 3),

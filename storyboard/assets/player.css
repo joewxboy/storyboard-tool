@@ -96,6 +96,19 @@ header.season { display: flex; flex-direction: column; gap: 14px; }
 .now-playing .moment em { color: var(--ink); font-style: normal; }
 .now-playing .moment[hidden] { display: none; }
 
+/* how much of this episode is footage rather than placeholder */
+.coverage { display: flex; align-items: center; gap: 9px; margin-top: 6px; }
+.cov-track {
+  flex: 0 0 96px; height: 5px; border-radius: 99px;
+  background: var(--line2); overflow: hidden;
+}
+.cov-track i { display: block; height: 100%; width: 0; background: var(--amber); }
+.coverage.done .cov-track i { background: var(--signal); }
+.cov-text {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em;
+  color: var(--dimmer);
+}
+
 /* ───────── the frame ───────── */
 
 .frame-wrap { display: flex; justify-content: center; }
@@ -344,7 +357,17 @@ header.season { display: flex; flex-direction: column; gap: 14px; }
   color: var(--dimmer); background: var(--panel2); overflow: hidden; white-space: nowrap;
 }
 .seg.active { background: var(--accent-soft); color: var(--ink); }
-.tick { position: absolute; bottom: 0; height: 14px; border-left: 1px solid var(--line); background: #17131C; overflow: hidden; }
+.tick {
+  position: absolute; bottom: 0; height: 14px;
+  border-left: 1px solid var(--line); background: #17131C; overflow: hidden;
+}
+/* a captured stretch of the clock reads solid; an imagined one is hatched */
+.tick.placeholder {
+  background-image: repeating-linear-gradient(115deg,
+    transparent 0 3px, rgba(255,255,255,0.05) 3px 6px);
+}
+.tick.draft { background: color-mix(in srgb, var(--amber) 22%, #17131C); }
+.tick.final { background: color-mix(in srgb, var(--signal) 24%, #17131C); }
 .tick span { font-family: var(--mono); font-size: 9px; color: var(--dimmer); padding-left: 3px; line-height: 14px; }
 .playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent);
             box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 80%, transparent); pointer-events: none; }
@@ -400,7 +423,18 @@ button[aria-pressed="true"] { background: var(--accent); border-color: var(--acc
   font-family: var(--body); font-size: 13px; letter-spacing: 0; color: var(--dim);
 }
 .shot:hover { border-color: var(--line); border-left-color: var(--dimmer); }
-.shot .num { font-family: var(--mono); font-size: 11px; color: var(--dimmer); letter-spacing: 0.06em; }
+.shot .num {
+  font-family: var(--mono); font-size: 11px; color: var(--dimmer);
+  letter-spacing: 0.06em; position: relative; padding-left: 9px;
+}
+/* placeholder · draft · final, in front of the shot number */
+.shot .num::before {
+  content: ""; position: absolute; left: 0; top: 5px;
+  width: 5px; height: 5px; border-radius: 50%;
+  background: transparent; border: 1px solid var(--dimmer);
+}
+.shot.is-draft .num::before { background: var(--amber); border-color: var(--amber); }
+.shot.is-final .num::before { background: var(--signal); border-color: var(--signal); }
 .shot .ttl { color: var(--ink); font-weight: 500; display: block; margin-bottom: 2px; }
 .shot .meta { font-family: var(--mono); font-size: 10.5px; color: var(--dimmer); letter-spacing: 0.04em; }
 .shot .note { display: block; margin-top: 4px; font-size: 12.5px; line-height: 1.45; }
